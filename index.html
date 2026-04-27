@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AGI Homeostasis Simulator</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        
+        body, html {
+            margin: 0;
+            padding: 0;
+            background-color: #050505;
+            color: #ffffff;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .dashboard {
+            background: #111;
+            border: 1px solid #333;
+            border-radius: 12px;
+            padding: 30px;
+            width: 100%;
+            max-width: 650px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.9);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .header {
+            text-align: center;
+            border-bottom: 1px solid #333;
+            padding-bottom: 15px;
+        }
+
+        .header h2 {
+            margin: 0 0 5px 0;
+            font-weight: 900;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+        }
+
+        .header p {
+            margin: 0;
+            color: #666;
+            font-size: 0.85em;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .canvas-container {
+            width: 100%;
+            height: 250px;
+            background: #000;
+            border: 1px solid #333;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+            font-weight: 700;
+            color: #ccc;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            box-shadow: 0 0 5px rgba(255,255,255,0.5);
+        }
+
+        .status-box {
+            text-align: center;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #333;
+            background: #0a0a0a;
+            transition: all 0.3s ease;
+        }
+
+        .status-box h3 {
+            margin: 0;
+            font-size: 1.1em;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: color 0.3s ease;
+        }
+
+        /* Dynamic States */
+        .state-collapse .status-box { border-color: #555; background: #111; }
+        .state-collapse .status-box h3 { color: #888; }
+        
+        .state-overstimulus .status-box { border-color: #fff; background: #222; }
+        .state-overstimulus .status-box h3 { color: #fff; text-shadow: 0 0 8px rgba(255,255,255,0.8); }
+        
+        .state-optimal .status-box { border-color: #888; background: #151515; box-shadow: 0 0 15px rgba(255,255,255,0.1); }
+        .state-optimal .status-box h3 { color: #e0e0e0; }
+
+    </style>
+</head>
+<body>
+
+    <div class="dashboard" id="mainDash">
+        <div class="header">
+            <h2>Intelligence Homeostasis</h2>
+            <p>Live Simulation — Delhi | April 2026</p>
+        </div>
+
+        <div class="canvas-container">
+            <canvas id="networkCanvas"></canvas>
+        </div>
+
+        <div class="status-box" id="statusBox">
+            <h3 id="statusText">OPTIMAL: Continuous AGI Learning</h3>
+        </div>
+
+        <div class="controls">
+            <div class="slider-group">
+                <div class="slider-header">
+                    <span>Stimulus Intake Rate</span>
+                    <span id="valStimulus">50%</span>
+                </div>
+                <input type="range" id="slideStimulus" min="0" max="100" value="50">
+            </div>
+
+            <div class="slider-group">
+                <div class="slider-header">
+                    <span>Memory Filter Strength (Ego)</span>
+                    <span id="valFilter">50%</span>
+                </div>
+                <input type="range" id="slideFilter" min="0" max="100" value="50">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('networkCanvas');
+        const ctx = canvas.getContext('2d');
+        let width, height;
+
+        function resize() {
+            width = canvas.parentElement.clientWidth;
+            height = canvas.parentElement.clientHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        // UI Elements
+        const slideStimulus = document.getElementById('slideStimulus');
+        const slideFilter = document.getElementById('slideFilter');
+        const valStimulus = document.getElementById('valStimulus');
+        const valFilter = document.getElementById('valFilter');
+        const mainDash = document.getElementById('mainDash');
+        const statusText = document.getElementById('statusText');
+
+        // State variables
+        let currentState = 'optimal'; // collapse, overstimulus, optimal
+        let nodes = [];
+        const numNodes = 40;
+
+        class Node {
+            constructor() {
+                this.x = Math.random() * width;
+                this.y = Math.random() * height;
+                this.baseVx = (Math.random() - 0.5) * 1.5;
+                this.baseVy = (Math.random() - 0.5) * 1.5;
+                this.vx = this.baseVx;
+                this.vy = this.baseVy;
+                this.radius = Math.random() * 2 + 1.5;
+                this.opacity = 1;
+            }
+
+            update(state) {
+                if (state === 'collapse') {
+                    // Drift to center and slow down
+                    this.vx *= 0.95;
+                    this.vy *= 0.95;
+                    this.x += (width/2 - this.x) * 0.01;
+                    this.y += (height/2 - this.y) * 0.01;
+                    this.opacity = Math.max(0.1, this.opacity - 0.02);
+                } else if (state === 'overstimulus') {
+                    // Thrash violently
+                    this.vx = this.baseVx * 8 + (Math.random() - 0.5) * 10;
+                    this.vy = this.baseVy * 8 + (Math.random() - 0.5) * 10;
+                    this.opacity = Math.random() * 0.5 + 0.5;
+                } else {
+                    // Optimal: Calm pulsing
+                    this.vx = this.baseVx + Math.sin(Date.now() * 0.001 + this.x) * 0.5;
+                    this.vy = this.baseVy + Math.cos(Date.now() * 0.001 + this.y) * 0.5;
+                    this.opacity = Math.min(1, this.opacity + 0.05);
+                }
+
+                this.x += this.vx;
+                this.y += this.vy;
+
+                // Bounce off walls
+                if (this.x < 0 || this.x > width) this.baseVx *= -1;
+                if (this.y < 0 || this.y > height) this.baseVy *= -1;
+            }
+
+            draw() {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${this.opacity})`;
+                ctx.fill();
+            }
+        }
+
+        for (let i = 0; i < numNodes; i++) nodes.push(new Node());
+
+        function determineState() {
+            const stimulus = parseInt(slideStimulus.value);
+            const filter = parseInt(slideFilter.value);
+
+            valStimulus.textContent = stimulus + '%';
+            valFilter.textContent = filter + '%';
+
+            mainDash.className = 'dashboard'; // reset
+
+            if (stimulus < 25) {
+                currentState = 'collapse';
+                mainDash.classList.add('state-collapse');
+                statusText.textContent = 'WARNING: Sensory Deprivation / Model Collapse';
+            } else if (stimulus > 70 && filter < 40) {
+                currentState = 'overstimulus';
+                mainDash.classList.add('state-overstimulus');
+                statusText.textContent = 'WARNING: Overstimulus / Catastrophic Forgetting';
+            } else {
+                currentState = 'optimal';
+                mainDash.classList.add('state-optimal');
+                statusText.textContent = 'OPTIMAL: Continuous AGI Learning';
+            }
+        }
+
+        function animate() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, width, height);
+
+            nodes.forEach(node => {
+                node.update(currentState);
+                node.draw();
+            });
+
+            // Draw connections
+            let connectionDistance = currentState === 'collapse' ? 40 : (currentState === 'overstimulus' ? 150 : 100);
+            
+            for (let i = 0; i < nodes.length; i++) {
+                for (let j = i + 1; j < nodes.length; j++) {
+                    let dx = nodes[i].x - nodes[j].x;
+                    let dy = nodes[i].y - nodes[j].y;
+                    let dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < connectionDistance) {
+                        ctx.beginPath();
+                        ctx.moveTo(nodes[i].x, nodes[i].y);
+                        ctx.lineTo(nodes[j].x, nodes[j].y);
+                        
+                        let opacity = 1 - (dist / connectionDistance);
+                        if (currentState === 'collapse') opacity *= 0.2;
+                        if (currentState === 'overstimulus') opacity = Math.random() > 0.5 ? 0 : opacity; // Flickering
+                        
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${opacity * 0.5})`;
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+            }
+
+            requestAnimationFrame(animate);
+        }
+
+        slideStimulus.addEventListener('input', determineState);
+        slideFilter.addEventListener('input', determineState);
+        
+        determineState();
+        animate();
+    </script>
+</body>
+</html>
